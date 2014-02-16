@@ -11,7 +11,7 @@ from urllib import urlencode
 from requests.auth import HTTPBasicAuth
 from refreshbooks import api
 
-# from pprint import pprint
+from pprint import pprint
 
 try:
     import config
@@ -208,6 +208,7 @@ class FreshbooksToToggl(object):
             return None
 
         return {
+            "billed": freshbooks_entry['billed'],
             "start_date": start_date,
             "duration": duration,
             "project_id": project_id,
@@ -220,7 +221,7 @@ class FreshbooksToToggl(object):
             date_from=start_date,
             date_to=end_date
         )
-        # pprint(freshbooks_time_entries, indent=4)
+        pprint(freshbooks_time_entries, indent=4)
         """
         workspace_id=362157
         # project_list = freshbooks.get_project_list()
@@ -240,14 +241,13 @@ class FreshbooksToToggl(object):
             data = self._freshbooks_entry_as_dict(fbe)
             print("Data is: %s" % data)
 
-            if data is not None:
-                pass
-                # self.toggl.create_time_entry(
-                #     project_id=project_id,
-                #     description=fbe['notes'],
-                #     start_date=start_date,
-                #     duration=duration
-                # )
+            if data is not None and create_entries:
+                self.toggl.create_time_entry(
+                    project_id=data.project_id,
+                    description=data.description,
+                    start_date=data.start_date,
+                    duration=data.duration
+                )
         # workspace_projects = toggl.get_workspace_projects(X)
         # print json.dumps(workspace_projects, indent=4, sort_keys=True)
         # listinvoices = Freshbooks()
