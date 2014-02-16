@@ -6,13 +6,12 @@ import json
 import datetime
 # from tzlocal import get_localzone
 from pytz import timezone
-import pytz
 
 from urllib import urlencode
 from requests.auth import HTTPBasicAuth
 from refreshbooks import api
 
-from pprint import pprint
+# from pprint import pprint
 
 try:
     import config
@@ -28,24 +27,10 @@ class TogglAPI(object):
     https://github.com/toggl/toggl_api_docs/blob/master/toggl_api.md
     """
 
-    def __init__(self, api_token, timezone):
+    def __init__(self, api_token):
         self.api_token = api_token
-        self.timezone = timezone
 
     def _make_url(self, section='time_entries', params={}):
-        """Constructs and returns an api url to call with the section of the API to be called
-        and parameters defined by key/pair values in the paramas dict.
-        Default section is "time_entries" which evaluates to "time_entries.json"
-
-        >>> t = TogglAPI('_SECRET_TOGGLE_API_TOKEN_')
-        >>> t._make_url(section='time_entries', params = {})
-        'https://www.toggl.com/api/v8/time_entries'
-
-        >>> t = TogglAPI('_SECRET_TOGGLE_API_TOKEN_')
-        >>> t._make_url(section='time_entries', params = {'start_date' : '2010-02-05T15:42:46+02:00', 'end_date' : '2010-02-12T15:42:46+02:00'})
-        'https://www.toggl.com/api/v8/time_entries?start_date=2010-02-05T15%3A42%3A46%2B02%3A00%2B02%3A00&end_date=2010-02-12T15%3A42%3A46%2B02%3A00%2B02%3A00'
-        """
-
         url = 'https://www.toggl.com/api/v8/{}'.format(section)
         if len(params) > 0:
             url = url + '?{}'.format(urlencode(params))
@@ -187,7 +172,6 @@ class Freshbooks(object):
 
         time_entries = []
         for time_entry in time_entries_response.time_entries.time_entry:
-            print(type(time_entry.hours))
             time_entries.append({
                 'id': time_entry.time_entry_id,
                 'staff_id': time_entry.staff_id,
@@ -201,6 +185,77 @@ class Freshbooks(object):
         return time_entries
 
 
+class FreshbooksToToggl(object):
+
+    def __init__(self):
+        self.freshbooks = Freshbooks()
+        self.toggl = TogglAPI(config.TOGGL_API_TOKEN)
+        self.pacific = timezone(config.TIMEZONE)
+
+    def _convert_hours_to_seconds(self, hours):
+        return float(hours) * 60 * 60
+
+    def _freshbooks_entry_as_dict(self, freshbooks_entry):
+        date_split = freshbooks_entry['date'].split('-')
+        start_date = datetime.datetime(int(date_split[0]), int(date_split[1]), int(date_split[2]), 0, 0, 0, 0, tzinfo=self.pacific)
+        duration = self._convert_hours_to_seconds(freshbooks_entry['hours'])
+        project_id = None
+
+        task_id = str(freshbooks_entry['task_id'])
+        if task_id in config.F_TO_T_MAPPING:
+            project_id = config.F_TO_T_MAPPING[task_id]
+        else:
+            return None
+
+        return {
+            "start_date": start_date,
+            "duration": duration,
+            "project_id": project_id,
+            "description": freshbooks_entry['notes']
+        }
+
+    def sync(self, start_date, end_date, freshbooks_project_id, create_entries):
+        freshbooks_time_entries = self.freshbooks.get_time_entries(
+            project_id=freshbooks_project_id,
+            date_from=start_date,
+            date_to=end_date
+        )
+        # pprint(freshbooks_time_entries, indent=4)
+        """
+        workspace_id=362157
+        # project_list = freshbooks.get_project_list()
+        # pprint(project_list, indent=4)
+        # task_list = freshbooks.get_task_list(project_id=58)
+        # pprint(task_list, indent=4)
+
+        toggl_time_entries = toggl.get_time_entries(
+            datetime.datetime(2014, 2, 1, 0, 0, 0, 0, tzinfo=pytz.utc),
+            datetime.datetime(2014, 2, 15, 0, 0, 0, 0, tzinfo=pytz.utc)
+        )
+        pprint(toggl_time_entries, indent=4)
+        """
+
+        for fbe in freshbooks_time_entries:
+
+            data = self._freshbooks_entry_as_dict(fbe)
+            print("Data is: %s" % data)
+
+            if data is not None:
+                pass
+                # self.toggl.create_time_entry(
+                #     project_id=project_id,
+                #     description=fbe['notes'],
+                #     start_date=start_date,
+                #     duration=duration
+                # )
+        # workspace_projects = toggl.get_workspace_projects(X)
+        # print json.dumps(workspace_projects, indent=4, sort_keys=True)
+        # listinvoices = Freshbooks()
+
+        # if args.listinvoices:
+        #     sbr.sync()
+
+
 def main():
     parser = argparse.ArgumentParser(prog='freshbooks-to-toggl')
 
@@ -210,69 +265,38 @@ def main():
         action="store_true"
     )
 
+    parser.add_argument(
+        "--from",
+        dest="start_date",
+        type=str,
+        help="Start date of the form YYYY-MM-DD"
+    )
+
+    parser.add_argument(
+        "--to",
+        dest="end_date",
+        type=str,
+        help="End date of the form YYYY-MM-DD"
+    )
+
+    parser.add_argument(
+        "--project_id",
+        dest="project_id",
+        type=int,
+        help="Freshbooks Project ID"
+    )
+
+    parser.add_argument(
+        "--sync",
+        dest="sync",
+        action="store_true"
+    )
+
     args = parser.parse_args()
 
-    freshbooks = Freshbooks()
-    toggl = TogglAPI(config.TOGGL_API_TOKEN, '')
-
-    freshbooks_time_entries = freshbooks.get_time_entries(
-        project_id=58,
-        date_from='2014-02-01',
-        date_to='2014-02-15'
-    )
-    pprint(freshbooks_time_entries, indent=4)
-    """
-    workspace_id=362157
-    # project_list = freshbooks.get_project_list()
-    # pprint(project_list, indent=4)
-    # task_list = freshbooks.get_task_list(project_id=58)
-    # pprint(task_list, indent=4)
-
-    toggl_time_entries = toggl.get_time_entries(
-        datetime.datetime(2014, 2, 1, 0, 0, 0, 0, tzinfo=pytz.utc),
-        datetime.datetime(2014, 2, 15, 0, 0, 0, 0, tzinfo=pytz.utc)
-    )
-    pprint(toggl_time_entries, indent=4)
-    """
-
-    # toggl.create_time_entry(3118552, 'Testing from API caller', datetime.datetime(2014, 2, 2, 0, 0, 0, 0, tzinfo=pytz.utc), 1200)
-    #    def create_time_entry(self, project_id, description, start_date, duration, created_with='Freshbooks to Toggl'):
-
-    # "Websites - Infrastructure" = 3118555  === Freshbooks = 5
-    # "Websites - Project Management & Meetings" = 3118552 === Freshbooks 2, 3
-    # "Websites - Care & Feeding" = 3118550 === Freshbooks 4
-
-    pacific = timezone('US/Pacific')
-    for fbe in freshbooks_time_entries:
-        duration = float(fbe['hours']) * 60 * 60          # convert the hours in Freshbooks to a seconds-based duration
-        project_id = None
-
-        if fbe['task_id'] == 5:
-            project_id = 3118555
-        elif fbe['task_id'] == 2 or fbe['task_id'] == 3:
-            project_id = 3118552
-        elif fbe['task_id'] == 4:
-            project_id = 3118550
-
-        if project_id is None:
-            continue
-
-        date_split = fbe['date'].split("-")
-        start_date = datetime.datetime(int(date_split[0]), int(date_split[1]), int(date_split[2]), 0, 0, 0, 0, tzinfo=pacific)
-
-        print('Project ID: %s, Description: %s, Start Date: %s, Duration: %s' % (project_id, fbe['notes'], start_date, duration))
-        toggl.create_time_entry(
-            project_id=project_id,
-            description=fbe['notes'],
-            start_date=start_date,
-            duration=duration
-        )
-    # workspace_projects = toggl.get_workspace_projects(362157)
-    # print json.dumps(workspace_projects, indent=4, sort_keys=True)
-    # listinvoices = Freshbooks()
-
-    # if args.listinvoices:
-    #     sbr.sync()
+    if(args.sync):
+        fb_to_toggl = FreshbooksToToggl()
+        fb_to_toggl.sync(args.start_date, args.end_date, args.project_id, create_entries=False)
 
 
 if __name__ == '__main__':
