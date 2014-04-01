@@ -158,7 +158,10 @@ class Freshbooks(object):
             })
         return task_entries
 
-    def get_time_entries(self, project_id, date_from, date_to, task_id=None):
+    def get_time_entry_pagecount(self, project_id, date_from, date_to, task_id=None):
+        """
+        Returns the page count of time entries so we can iterate if needed
+        """
         time_entries_response = self.c.time_entry.list(
             project_id=project_id,
             date_from=date_from,
@@ -170,18 +173,46 @@ class Freshbooks(object):
             date_to=date_to
         )
 
+        return time_entries_response.time_entries.attrib['pages']
+
+    def get_time_entries(self, project_id, date_from, date_to, task_id=None):
+        """
+        Pull back time entries from Freshbooks.  Has a default of 25 entries per
+        page.
+        """
+
+        page_count = int(self.get_time_entry_pagecount(project_id, date_from, date_to, task_id))
+
+        print('Page Count: %d' % page_count)
         time_entries = []
-        for time_entry in time_entries_response.time_entries.time_entry:
-            time_entries.append({
-                'id': time_entry.time_entry_id,
-                'staff_id': time_entry.staff_id,
-                'project_id': time_entry.project_id,
-                'task_id': time_entry.task_id,
-                'hours': time_entry.hours.pyval,
-                'date': time_entry.date.text,
-                'notes': time_entry.notes.text,
-                'billed': (True if time_entry.billed is 1 else False)
-            })
+
+        for x in range(1, page_count+1):
+            time_entries_response = self.c.time_entry.list(
+                project_id=project_id,
+                date_from=date_from,
+                date_to=date_to,
+                page=x
+            ) if task_id is None else self.c.time_entry.list(
+                project_id=project_id,
+                task_id=task_id,
+                date_from=date_from,
+                date_to=date_to,
+                page=x
+            )
+
+            for time_entry in time_entries_response.time_entries.time_entry:
+                time_entries.append({
+                    'id': time_entry.time_entry_id,
+                    'staff_id': time_entry.staff_id,
+                    'project_id': time_entry.project_id,
+                    'task_id': time_entry.task_id,
+                    'hours': time_entry.hours.pyval,
+                    'date': time_entry.date.text,
+                    'notes': time_entry.notes.text,
+                    'billed': (True if time_entry.billed is 1 else False)
+                })
+
+        print('Number of time entries: %d' % (len(time_entries)))
         return time_entries
 
 
@@ -215,6 +246,14 @@ class FreshbooksToToggl(object):
             "description": freshbooks_entry['notes']
         }
 
+    def list_entries(self, start_date, end_date, freshbooks_project_id):
+        freshbooks_time_entries = self.freshbooks.get_time_entries(
+            project_id=freshbooks_project_id,
+            date_from=start_date,
+            date_to=end_date
+        )
+        pprint(freshbooks_time_entries, indent=4)
+
     def sync(self, start_date, end_date, freshbooks_project_id, create_entries):
         freshbooks_time_entries = self.freshbooks.get_time_entries(
             project_id=freshbooks_project_id,
@@ -239,14 +278,15 @@ class FreshbooksToToggl(object):
         for fbe in freshbooks_time_entries:
 
             data = self._freshbooks_entry_as_dict(fbe)
-            print("Data is: %s" % data)
+            # print("Data is: %s" % data)
 
+            pprint(data)
             if data is not None and create_entries:
                 self.toggl.create_time_entry(
-                    project_id=data.project_id,
-                    description=data.description,
-                    start_date=data.start_date,
-                    duration=data.duration
+                    project_id=data['project_id'],
+                    description=data['description'],
+                    start_date=data['start_date'],
+                    duration=data['duration']
                 )
         # workspace_projects = toggl.get_workspace_projects(X)
         # print json.dumps(workspace_projects, indent=4, sort_keys=True)
@@ -287,6 +327,12 @@ def main():
     )
 
     parser.add_argument(
+        "--list_entries",
+        dest="list_entries",
+        action="store_true"
+    )
+
+    parser.add_argument(
         "--sync",
         dest="sync",
         action="store_true"
@@ -294,10 +340,13 @@ def main():
 
     args = parser.parse_args()
 
-    if(args.sync):
+    if args.sync:
+        print('Retrieving and posting time entries from: %s to %s' % (args.start_date, args.end_date,))
         fb_to_toggl = FreshbooksToToggl()
-        fb_to_toggl.sync(args.start_date, args.end_date, args.project_id, create_entries=False)
-
+        fb_to_toggl.sync(args.start_date, args.end_date, args.project_id, create_entries=True)
+    elif args.list_entries:
+        fb_to_toggl = FreshbooksToToggl()
+        fb_to_toggl.list_entries(args.start_date, args.end_date, args.project_id)
 
 if __name__ == '__main__':
     main()
