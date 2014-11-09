@@ -254,6 +254,10 @@ class FreshbooksToToggl(object):
         )
         pprint(freshbooks_time_entries, indent=4)
 
+    def list_toggl_tasks(self, project_id):
+        task_entries = self.toggl.get_project_tasks(project_id)
+        pprint(task_entries, indent=4)
+
     def sync(self, start_date, end_date, freshbooks_project_id, create_entries):
         freshbooks_time_entries = self.freshbooks.get_time_entries(
             project_id=freshbooks_project_id,
@@ -333,6 +337,19 @@ def main():
     )
 
     parser.add_argument(
+        "--toggl-tasks",
+        dest="toggl_tasks",
+        action="store_true"
+    )
+
+    parser.add_argument(
+        "--toggl-project-id",
+        dest="toggl_project_id",
+        type=int,
+        help="Toggl Project ID"
+    )
+
+    parser.add_argument(
         "--sync",
         dest="sync",
         action="store_true"
@@ -347,6 +364,10 @@ def main():
     elif args.list_entries:
         fb_to_toggl = FreshbooksToToggl()
         fb_to_toggl.list_entries(args.start_date, args.end_date, args.project_id)
+    elif args.toggl_tasks:
+        fb_to_toggl = FreshbooksToToggl()
+        fb_to_toggl.list_toggl_tasks(args.toggl_project_id)
+
 
 if __name__ == '__main__':
     main()
